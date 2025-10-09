@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
 
 #define SIZE 3
 
@@ -60,6 +62,25 @@ int isFull(char board[SIZE][SIZE]) {
         }
     }
     return 1;
+}
+
+//컴퓨터의 랜덤 위치 선택 함수
+void ComputerMove(char board[SIZE][SIZE])
+{
+    int row, col;
+    while (1)
+    {
+        row = rand() % SIZE;
+        col = rand() % SIZE;
+
+        if (board[row][col] = " ")
+        {
+            board[row][col] = 'O';
+            printf("🤖 컴퓨터가 (%d, %d)에 둡니다.\n", row + 1, col + 1);
+            break
+        }
+    }
+
 }
 
 // 메인 함수
