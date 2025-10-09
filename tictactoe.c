@@ -65,7 +65,7 @@ int isFull(char board[SIZE][SIZE]) {
 }
 
 //컴퓨터의 랜덤 위치 선택 함수
-void ComputerMove(char board[SIZE][SIZE])
+void computerMove(char board[SIZE][SIZE])
 {
     int row, col;
     while (1)
@@ -77,7 +77,7 @@ void ComputerMove(char board[SIZE][SIZE])
         {
             board[row][col] = 'O';
             printf("🤖 컴퓨터가 (%d, %d)에 둡니다.\n", row + 1, col + 1);
-            break
+            break;
         }
     }
 
@@ -94,11 +94,15 @@ int main(void) {
     int row, col;
     char winner = ' ';
 
-    printf("🎮 틱택토 게임 시작!\n");
+    srand((unsigned int)time(NULL));    //랜덤 초기화
+
+    printf("🎮 틱택토 (플레이어 vs 컴퓨터) 게임 시작!\n");
+    printf("당신은 X 입니다.\n");
     printBoard(board);
 
     while (1) {
-        printf("플레이어 %c 차례입니다. (행 열 입력): ", currentPlayer);
+        //사람 차례
+        printf("플레이어 차례입니다. (행 열 입력): ");
         scanf("%d %d", &row, &col);
 
         if (row < 1 || row > 3 || col < 1 || col > 3) {
@@ -111,21 +115,36 @@ int main(void) {
             continue;
         }
 
-        board[row - 1][col - 1] = currentPlayer;
+        board[row - 1][col - 1] = 'X';
         printBoard(board);
 
         winner = checkWin(board);
         if (winner != ' ') {
-            printf("🎉 플레이어 %c 승리!\n", winner);
+            printf("🎉 플레이어 승리!\n");
             break;
         } else if (isFull(board)) {
             printf("🤝 무승부입니다!\n");
             break;
         }
 
-        // 턴 전환
-        currentPlayer = (currentPlayer == 'X') ? 'O' : 'X';
+        // 컴퓨터 차례
+        printf("컴퓨터 차례입니다...\n");
+        computerMove(board);
+        printBoard(board);
+
+        winner = checkWin(board);
+        if (winner != ' ')
+        {
+            printf("💻 컴퓨터 승리!\n");
+            break;
+        } 
+        else if (isFull(board))
+        {
+            printf("🤝 무승부입니다!\n");
+            break;
+        }
     }
 
+    printf("게임 종료!\n");
     return 0;
 }
