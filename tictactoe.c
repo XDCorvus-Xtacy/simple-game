@@ -73,7 +73,7 @@ void computerMove(char board[SIZE][SIZE])
         row = rand() % SIZE;
         col = rand() % SIZE;
 
-        if (board[row][col] = " ")
+        if (board[row][col] == ' ')
         {
             board[row][col] = 'O';
             printf("🤖 컴퓨터가 (%d, %d)에 둡니다.\n", row + 1, col + 1);
