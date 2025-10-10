@@ -12,121 +12,80 @@ int field[HEIGHT][WIDTH] = {0};
 int score = 0;
 int gameOver = 0;
 
-int tetromino[7][4][4][4] = {
+int tetromino[3][4][4] = {
     // I
     {
-        {
-            {0,0,0,0},
-            {1,1,1,1},
-            {0,0,0,0},
-            {0,0,0,0}
-        },
-        {
-            {0,0,1,0},
-            {0,0,1,0},
-            {0,0,1,0},
-            {0,0,1,0}
-        }
+        {0,1,0,0},
+        {0,1,0,0},
+        {0,1,0,0},
+        {0,1,0,0}
     },
     // O
     {
-        {
-            {0,0,0,0},
-            {0,1,1,0},
-            {0,1,1,0},
-            {0,0,0,0}
-        }
+        {0,0,0,0},
+        {0,1,1,0},
+        {0,1,1,0},
+        {0,0,0,0}
     },
     // T
     {
-        {
-            {0,0,0,0},
-            {1,1,1,0},
-            {0,1,0,0},
-            {0,0,0,0}
-        },
-        {
-            {0,1,0,0},
-            {1,1,0,0},
-            {0,1,0,0},
-            {0,0,0,0}
-        },
-        {
-            {0,1,0,0},
-            {1,1,1,0},
-            {0,0,0,0},
-            {0,0,0,0}
-        },
-        {
-            {0,1,0,0},
-            {0,1,1,0},
-            {0,1,0,0},
-            {0,0,0,0}
-        }
+        {0,0,0,0},
+        {1,1,1,0},
+        {0,1,0,0},
+        {0,0,0,0}
     }
 };
 
-// 🎯 커서 이동 함수 (ANSI escape)
+// --- 입력 비차단 모드 제어 ---
+void setBufferedInput(int enable) {
+    static struct termios oldt, newt;
+    if (!enable) {
+        tcgetattr(STDIN_FILENO, &oldt);
+        newt = oldt;
+        newt.c_lflag &= ~(ICANON | ECHO);
+        tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    } else {
+        tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    }
+}
+
+// --- 키 입력 체크 ---
+int kbhit(void) {
+    struct timeval tv = {0L, 0L};
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(STDIN_FILENO, &fds);
+    return select(STDIN_FILENO+1, &fds, NULL, NULL, &tv);
+}
+
+// --- 커서 이동 ---
 void gotoxy(int x, int y) {
     printf("\033[%d;%dH", y, x);
+}
+
+// --- 화면 클리어 ---
+void clearScreen() {
+    printf("\033[2J");
     fflush(stdout);
 }
 
-// 🎯 kbhit() 대체
-int kbhit(void) {
-    struct termios oldt, newt;
-    int ch;
-    int oldf;
-    int bytesWaiting;
-
-    tcgetattr(STDIN_FILENO, &oldt);
-    newt = oldt;
-    newt.c_lflag &= ~(ICANON | ECHO);
-    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
-
-    struct timeval tv = {0L, 0L};
-    fd_set readfds;
-    FD_ZERO(&readfds);
-    FD_SET(STDIN_FILENO, &readfds);
-    select(STDIN_FILENO + 1, &readfds, NULL, NULL, &tv);
-
-    int hit = FD_ISSET(STDIN_FILENO, &readfds);
-    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
-    return hit;
-}
-
-// 🎯 getch() 대체
-int getch(void) {
-    struct termios oldt, newt;
-    int ch;
-    tcgetattr(STDIN_FILENO, &oldt);
-    newt = oldt;
-    newt.c_lflag &= ~(ICANON | ECHO);
-    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
-    ch = getchar();
-    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
-    return ch;
-}
-
-// 🎯 필드 출력
+// --- 필드 그리기 ---
 void drawField() {
     gotoxy(0, 0);
     for (int y = 0; y < HEIGHT; y++) {
         for (int x = 0; x < WIDTH; x++) {
-            if (field[y][x])
-                printf("■");
-            else
-                printf(" .");
+            printf(field[y][x] ? "[]" : " .");
         }
         printf("\n");
     }
     printf("\n점수: %d\n", score);
+    fflush(stdout);
 }
 
-// 🎯 블록 충돌 검사
+// --- 충돌 검사 ---
 int checkCollision(int shape[4][4], int posX, int posY) {
-    for (int y = 0; y < 4; y++)
-        for (int x = 0; x < 4; x++)
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
             if (shape[y][x]) {
                 int fx = posX + x;
                 int fy = posY + y;
@@ -135,10 +94,12 @@ int checkCollision(int shape[4][4], int posX, int posY) {
                 if (fy >= 0 && field[fy][fx])
                     return 1;
             }
+        }
+    }
     return 0;
 }
 
-// 🎯 블록을 필드에 고정
+// --- 블록 고정 ---
 void mergeBlock(int shape[4][4], int posX, int posY) {
     for (int y = 0; y < 4; y++)
         for (int x = 0; x < 4; x++)
@@ -146,9 +107,9 @@ void mergeBlock(int shape[4][4], int posX, int posY) {
                 field[posY + y][posX + x] = 1;
 }
 
-// 🎯 줄 삭제
+// --- 줄 삭제 ---
 void clearLines() {
-    for (int y = 0; y < HEIGHT; y++) {
+    for (int y = HEIGHT - 1; y >= 0; y--) {
         int full = 1;
         for (int x = 0; x < WIDTH; x++) {
             if (!field[y][x]) {
@@ -163,31 +124,31 @@ void clearLines() {
                     field[yy][x] = field[yy - 1][x];
             for (int x = 0; x < WIDTH; x++)
                 field[0][x] = 0;
+            y++; // 같은 줄 다시 검사
         }
     }
 }
 
 int main() {
     srand(time(NULL));
+    clearScreen();
+    setBufferedInput(0); // 입력 버퍼 끄기
 
     int shape[4][4];
-    int curX = WIDTH / 2 - 2, curY = 0;
-    int type = rand() % 3; // 단순히 3종류만 사용 (I, O, T)
-    int rotation = 0;
+    int curX = WIDTH / 2 - 2;
+    int curY = 0;
+    int type = rand() % 3;
 
-    // 현재 블록 복사
     for (int y = 0; y < 4; y++)
         for (int x = 0; x < 4; x++)
-            shape[y][x] = tetromino[type][rotation][y][x];
-
-    system("clear");
+            shape[y][x] = tetromino[type][y][x];
 
     while (!gameOver) {
         drawField();
 
-        // 입력 처리
+        // 키 입력
         if (kbhit()) {
-            char key = getch();
+            char key = getchar();
             if (key == 'a' && !checkCollision(shape, curX - 1, curY))
                 curX--;
             else if (key == 'd' && !checkCollision(shape, curX + 1, curY))
@@ -197,29 +158,29 @@ int main() {
             else if (key == 'q') break;
         }
 
-        // 블록 아래로 이동
-        if (!checkCollision(shape, curX, curY + 1))
+        // 아래로 이동 or 고정
+        if (!checkCollision(shape, curX, curY + 1)) {
             curY++;
-        else {
+        } else {
             mergeBlock(shape, curX, curY);
             clearLines();
 
             curX = WIDTH / 2 - 2;
             curY = 0;
             type = rand() % 3;
-            rotation = 0;
-
             for (int y = 0; y < 4; y++)
                 for (int x = 0; x < 4; x++)
-                    shape[y][x] = tetromino[type][rotation][y][x];
+                    shape[y][x] = tetromino[type][y][x];
 
             if (checkCollision(shape, curX, curY))
                 gameOver = 1;
         }
 
-        usleep(300000); // 0.3초
+        usleep(300000);
     }
 
-    printf("\n\n💀 게임 오버! 최종 점수: %d 💀\n", score);
+    setBufferedInput(1);
+    gotoxy(0, HEIGHT + 3);
+    printf("\n💀 게임 오버! 점수: %d 💀\n", score);
     return 0;
 }
