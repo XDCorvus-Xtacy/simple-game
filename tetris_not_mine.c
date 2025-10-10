@@ -1,7 +1,8 @@
 // tetris_termux.c
-// Termux / code-server 터미널용 완성형 테트리스 (C)
-// 컴파일: gcc tetris_termux.c -o tetris -O2
-// 실행: ./tetris
+// Termux / Linux terminal optimized full Tetris (15x25)
+// Controls: Left/Right arrows, Down arrow = soft drop, 's' = rotate, Space = hard drop, p = pause, q = quit
+// Compile: gcc -O2 -o tetris_termux tetris_termux.c
+// Run: ./tetris_termux
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,11 +12,13 @@
 #include <sys/select.h>
 #include <time.h>
 #include <signal.h>
+#include <sys/ioctl.h>
 
-#define WIDTH 10
-#define HEIGHT 20
+#define BOARD_WIDTH 15
+#define BOARD_HEIGHT 25
+#define TYPE_COUNT 7
 
-// ANSI 색상 (배경)
+// ANSI color backgrounds (each cell prints two spaces with bg color)
 #define BG_RESET   "\033[0m"
 #define BG_I       "\033[48;5;39m"   // cyan-ish
 #define BG_O       "\033[48;5;226m"  // yellow
@@ -27,50 +30,50 @@
 #define BG_WALL    "\033[48;5;240m"  // gray for border
 #define FG_TEXT    "\033[38;5;15m"
 
-// 블록 타입 인덱스
-enum { I_T=0, O_T, T_T, S_T, Z_T, J_T, L_T, TYPE_COUNT };
+// Field: 0 = empty, 1..7 = block type index +1
+static int field[BOARD_HEIGHT][BOARD_WIDTH];
 
-// 게임 필드: 0 = 빈칸, 1..7 = 블록타입+1
-int field[HEIGHT][WIDTH];
+// piece structure
+typedef struct { int type, rot, x, y; } Piece;
 
-// 현재 조각 정보
-typedef struct {
-    int type;       // 0..6
-    int rot;        // 0..3
-    int x, y;       // 좌표: (x,y) 기준은 블록의 4x4 좌표 상단 왼쪽
-} Piece;
+static Piece curPiece, nextPiece;
+static int score = 0;
+static int lines_cleared = 0;
+static int level = 1;
+static int game_over = 0;
+static int paused = 0;
 
-Piece curPiece, nextPiece;
-int level = 1;
-int score = 0;
-int lines_cleared = 0;
-int game_over = 0;
-int paused = 0;
-
-// 터미널 원상복구
+// terminal original state
 static struct termios orig_termios;
+
+// restore terminal on exit
 void restore_terminal(void) {
     tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);
     printf(BG_RESET);
-    printf("\033[?25h"); // cursor show
+    printf("\033[?25h"); // show cursor
     fflush(stdout);
 }
-void on_exit_cleanup(void) { restore_terminal(); }
 
-// 터미널 raw 모드로 (비차단 입력에 사용)
+void on_exit_cleanup(void) {
+    restore_terminal();
+}
+
+// enable raw input (non-canonical, no-echo)
 void enable_raw_mode(void) {
     tcgetattr(STDIN_FILENO, &orig_termios);
     atexit(on_exit_cleanup);
+
     struct termios raw = orig_termios;
     raw.c_lflag &= ~(ECHO | ICANON); // no echo, non-canonical
     raw.c_iflag &= ~(IXON | ICRNL);
+    raw.c_oflag &= ~(OPOST);
     raw.c_cc[VMIN] = 0;
     raw.c_cc[VTIME] = 0;
     tcsetattr(STDIN_FILENO, TCSANOW, &raw);
-    printf("\033[?25l"); // cursor hide
+    printf("\033[?25l"); // hide cursor
 }
 
-// 키 입력 대기 없이 읽기 (select 사용)
+// read key if available (non-blocking). returns -1 if none.
 int read_key_nonblock() {
     fd_set set;
     struct timeval tv = {0, 0};
@@ -83,13 +86,22 @@ int read_key_nonblock() {
     return -1;
 }
 
-// 화면 제어
-void cls() { printf("\033[H\033[J"); }
-void gotoxy(int x, int y) { printf("\033[%d;%dH", y, x); }
+// get terminal size (columns)
+int get_terminal_cols() {
+    struct winsize ws;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1) return 80;
+    return ws.ws_col;
+}
 
-// 기본 4x4 형태 (rotation은 함수로 처리)
+// clear screen and move to home
+void cls() { printf("\033[H\033[J"); }
+
+// move cursor to top-left (1,1)
+void gotoxy1() { printf("\033[H"); }
+
+// basic 4x4 templates for each piece in its spawn orientation
 int shape4[7][4][4] = {
-    // I (기본 세로형)
+    // I
     {
         {0,1,0,0},
         {0,1,0,0},
@@ -140,227 +152,243 @@ int shape4[7][4][4] = {
     }
 };
 
-// rotation: 0..3, return 1 if block present at (rx,ry) in rotated 4x4
+// returns 1 if block exists at rotated (rx,ry) for type, rot
 int block_at(int type, int rot, int rx, int ry) {
-    // rotation about 4x4 square clockwise rot times
-    // mapping: for rot=1 (90deg): new[x][y] = old[3-y][x]
-    int x = rx, y = ry;
-    int tx, ty;
     int val = 0;
     if (rot == 0) val = shape4[type][ry][rx];
-    else if (rot == 1) { tx = 3 - ry; ty = rx; val = shape4[type][ty][tx]; }
-    else if (rot == 2) { tx = 3 - rx; ty = 3 - ry; val = shape4[type][ty][tx]; }
-    else { tx = ry; ty = 3 - rx; val = shape4[type][ty][tx]; }
+    else if (rot == 1) { int tx = 3 - ry, ty = rx; val = shape4[type][ty][tx]; }
+    else if (rot == 2) { int tx = 3 - rx, ty = 3 - ry; val = shape4[type][ty][tx]; }
+    else { int tx = ry, ty = 3 - rx; val = shape4[type][ty][tx]; }
     return val;
 }
 
-// 충돌 검사: piece를 (px,py,rot)로 놓을 수 있는가?
+// collision check: returns 1 if collides / invalid
 int collide_piece(int type, int rot, int px, int py) {
-    for (int ry = 0; ry < 4; ++ry) {
-        for (int rx = 0; rx < 4; ++rx) {
-            if (!block_at(type, rot, rx, ry)) continue;
-            int fx = px + rx;
-            int fy = py + ry;
-            if (fx < 0 || fx >= WIDTH) return 1;
-            if (fy >= HEIGHT) return 1;
-            if (fy >= 0 && field[fy][fx]) return 1;
-        }
+    for (int ry=0; ry<4; ry++) for (int rx=0; rx<4; rx++) {
+        if (!block_at(type, rot, rx, ry)) continue;
+        int fx = px + rx, fy = py + ry;
+        if (fx < 0 || fx >= BOARD_WIDTH) return 1;
+        if (fy >= BOARD_HEIGHT) return 1;
+        if (fy >= 0 && field[fy][fx]) return 1;
     }
     return 0;
 }
 
-// 현재 조각을 필드에 병합 (고정)
+// merge piece into field (fix)
 void merge_piece(Piece *p) {
-    for (int ry=0; ry<4; ++ry) for (int rx=0; rx<4; ++rx) {
+    for (int ry=0; ry<4; ry++) for (int rx=0; rx<4; rx++) {
         if (!block_at(p->type, p->rot, rx, ry)) continue;
-        int fx = p->x + rx;
-        int fy = p->y + ry;
-        if (fy >= 0 && fy < HEIGHT && fx >= 0 && fx < WIDTH) {
-            field[fy][fx] = p->type + 1; // 저장할 때 1..7
+        int fx = p->x + rx, fy = p->y + ry;
+        if (fy >= 0 && fy < BOARD_HEIGHT && fx >= 0 && fx < BOARD_WIDTH) {
+            field[fy][fx] = p->type + 1; // store 1..7
         }
     }
 }
 
-// 한 줄 지우기 검사 및 처리
+// clear full lines, update score & lines_cleared & level
 void clear_lines_and_score() {
     int cleared = 0;
-    for (int y = HEIGHT-1; y >= 0; --y) {
+    for (int y = BOARD_HEIGHT-1; y >= 0; --y) {
         int full = 1;
-        for (int x = 0; x < WIDTH; ++x) if (!field[y][x]) { full = 0; break; }
+        for (int x=0; x<BOARD_WIDTH; ++x) if (!field[y][x]) { full = 0; break; }
         if (full) {
             cleared++;
-            // 위로 한 칸씩 내리기
-            for (int yy = y; yy > 0; --yy) for (int x=0;x<WIDTH;++x) field[yy][x] = field[yy-1][x];
-            for (int x=0;x<WIDTH;++x) field[0][x] = 0;
-            ++y; // 같은 행 다시 검사 (since rows moved down)
+            for (int yy=y; yy>0; --yy) for (int x=0; x<BOARD_WIDTH; ++x) field[yy][x] = field[yy-1][x];
+            for (int x=0; x<BOARD_WIDTH; ++x) field[0][x] = 0;
+            ++y; // re-check this row after shift
         }
     }
     if (cleared) {
         lines_cleared += cleared;
-        // 일반 테트리스식 점수: 1줄=100, 2줄=300, 3줄=500, 4줄=800 (간단 가중치)
         static int scoreTable[5] = {0,100,300,500,800};
         score += scoreTable[cleared] * level;
-        // 레벨업: 예시로 10라인마다 레벨업
-        if (lines_cleared >= level * 10) { level++; }
+        // level up each 10 lines
+        if (lines_cleared >= level * 10) level++;
     }
 }
 
-// 랜덤 조각 생성
+// create random piece
 Piece make_random_piece() {
     Piece p;
     p.type = rand() % TYPE_COUNT;
     p.rot = 0;
-    p.x = (WIDTH / 2) - 2; // 중앙에 배치
-    p.y = -1; // spawn slightly above board so O/I can appear well
+    p.x = (BOARD_WIDTH / 2) - 2;
+    p.y = -1; // spawn slightly above
     return p;
 }
 
-// 색상 매핑
+// color mapping
 const char* color_for_type(int t) {
     switch(t) {
-        case I_T: return BG_I;
-        case O_T: return BG_O;
-        case T_T: return BG_T;
-        case S_T: return BG_S;
-        case Z_T: return BG_Z;
-        case J_T: return BG_J;
-        case L_T: return BG_L;
+        case 0: return BG_I;
+        case 1: return BG_O;
+        case 2: return BG_T;
+        case 3: return BG_S;
+        case 4: return BG_Z;
+        case 5: return BG_J;
+        case 6: return BG_L;
         default: return BG_RESET;
     }
 }
 
-// 필드와 HUD 그리기
+// draw board + HUD centered (computes terminal width)
 void draw_all(Piece *p, Piece *nextP) {
-    // move cursor to top-left
-    gotoxy(1,1);
-    // 좌측: 보드 (테두리 포함)
-    printf(FG_TEXT);
-    for (int y = -1; y <= HEIGHT; ++y) {
-        for (int x = -1; x <= WIDTH; ++x) {
-            if (y == -1 || y == HEIGHT || x == -1 || x == WIDTH) {
+    gotoxy1();
+    int cols = get_terminal_cols();
+    int needed = (BOARD_WIDTH + 2) * 2; // border + cells (each cell=2chars)
+    int left_margin = (cols - needed) / 2;
+    if (left_margin < 1) left_margin = 1;
+
+    int hud_start = left_margin + needed + 2;
+
+    for (int y = -1; y <= BOARD_HEIGHT; ++y) {
+        // left padding
+        for (int i=0;i<left_margin;i++) putchar(' ');
+
+        // board row
+        for (int x = -1; x <= BOARD_WIDTH; ++x) {
+            if (y == -1 || y == BOARD_HEIGHT || x == -1 || x == BOARD_WIDTH) {
                 // border
-                printf(BG_WALL "  " BG_RESET);
+                printf("%s  %s", BG_WALL, BG_RESET);
             } else {
-                // check current falling piece occupies this cell?
-                int occupied = 0;
+                // check if current piece occupies
+                int occ = 0;
                 if (p) {
-                    for (int ry=0; ry<4 && !occupied; ++ry) for (int rx=0; rx<4; ++rx) {
+                    for (int ry=0; ry<4 && !occ; ++ry) for (int rx=0; rx<4; ++rx) {
                         if (!block_at(p->type, p->rot, rx, ry)) continue;
-                        int fx = p->x + rx;
-                        int fy = p->y + ry;
-                        if (fx == x && fy == y) { occupied = 1; break; }
+                        int fx = p->x + rx, fy = p->y + ry;
+                        if (fx == x && fy == y) { occ = 1; break; }
                     }
                 }
-                if (occupied && p->y <= y) {
-                    printf("%s  " BG_RESET, color_for_type(p->type));
+                if (occ && p->y <= y) {
+                    printf("%s  %s", color_for_type(p->type), BG_RESET);
                 } else {
                     int v = field[y][x];
-                    if (v) {
-                        printf("%s  " BG_RESET, color_for_type(v-1));
-                    } else {
-                        printf("  ");
-                    }
+                    if (v) printf("%s  %s", color_for_type(v-1), BG_RESET);
+                    else printf("  ");
                 }
             }
         }
-        // 오른쪽에 HUD (한 줄마다)
-        if (y == 0) printf("   %sTETRIS (Termux)%s\n", FG_TEXT, BG_RESET);
-        else if (y == 1) printf("   SCORE: %d\n", score);
-        else if (y == 2) printf("   LEVEL: %d\n", level);
-        else if (y == 3) printf("   LINES: %d\n", lines_cleared);
-        else if (y == 5) printf("   NEXT:\n");
-        else if (y >= 6 && y <= 9) {
-            // show next piece in 4x4 block
-            int ry = y - 6;
+
+        // HUD (a few lines to the right)
+        int afterBoardSpaces = (hud_start - (left_margin + needed));
+        for (int s=0;s<afterBoardSpaces;s++) putchar(' ');
+        // print HUD based on row index
+        if (y == -1) printf("   %sTETRIS (Termux)%s", FG_TEXT, BG_RESET);
+        else if (y == 0)  printf("   SCORE: %d", score);
+        else if (y == 1)  printf("   LEVEL: %d", level);
+        else if (y == 2)  printf("   LINES: %d", lines_cleared);
+        else if (y == 4)  printf("   NEXT:");
+        else if (y >= 5 && y <= 8) {
+            int ry = y - 5;
             printf("   ");
-            for (int rx = 0; rx < 4; ++rx) {
-                if (block_at(nextP->type, nextP->rot, rx, ry)) {
-                    printf("%s  " BG_RESET, color_for_type(nextP->type));
-                } else printf("  ");
+            for (int rx=0; rx<4; ++rx) {
+                if (block_at(nextP->type, nextP->rot, rx, ry)) printf("%s  %s", color_for_type(nextP->type), BG_RESET);
+                else printf("  ");
             }
-            printf("\n");
         }
-        else if (y == 11) printf("   Controls:\n");
-        else if (y == 12) printf("   a:left  d:right  s:down  w:rotate\n");
-        else if (y == 13) printf("   space:hard drop  p:pause  q:quit\n");
-        else printf("\n");
+        else if (y == 10) printf("   Controls:");
+        else if (y == 11) printf("   ←/→: move  ↓: soft drop  s: rotate");
+        else if (y == 12) printf("   space: hard drop  p:pause  q:quit");
+        else if (y == BOARD_HEIGHT) printf("   (Resize terminal if output looks broken)");
+        // newline
+        putchar('\n');
     }
     fflush(stdout);
 }
 
-// 하드 드롭 (즉시 내려서 고정)
+// hard drop (immediate)
 void hard_drop(Piece *p) {
     while (!collide_piece(p->type, p->rot, p->x, p->y + 1)) p->y++;
     merge_piece(p);
+    // hard drop bonus
+    score += level * 2;
     clear_lines_and_score();
 }
 
-// 시그널 (예: Ctrl+C) 처리: 터미널 복구 후 종료
-void sigint_handler(int signo) {
+// simple wall-kick: try left/right if rotate into collision
+int try_rotate_with_kick(Piece *p, int newrot) {
+    if (!collide_piece(p->type, newrot, p->x, p->y)) { p->rot = newrot; return 1; }
+    if (!collide_piece(p->type, newrot, p->x-1, p->y)) { p->x -= 1; p->rot = newrot; return 1; }
+    if (!collide_piece(p->type, newrot, p->x+1, p->y)) { p->x += 1; p->rot = newrot; return 1; }
+    return 0;
+}
+
+// SIGINT handler cleanup
+void sigint_handler(int s) {
     restore_terminal();
     printf("\nInterrupted. Exiting.\n");
     exit(0);
 }
 
-int main() {
-    srand(time(NULL));
+int main(void) {
+    srand((unsigned)time(NULL));
     signal(SIGINT, sigint_handler);
 
-    // 초기화
     memset(field, 0, sizeof(field));
     enable_raw_mode();
     cls();
 
     nextPiece = make_random_piece();
     curPiece = make_random_piece();
-    // if spawn collides immediately -> game over
+
+    // if spawn collides -> game over (board too small or blocked)
     if (collide_piece(curPiece.type, curPiece.rot, curPiece.x, curPiece.y)) {
         restore_terminal();
-        printf("Cannot spawn. Terminal too small or board blocked.\n");
-        return 0;
+        fprintf(stderr, "Cannot spawn piece. Increase terminal size or clear board.\n");
+        return 1;
     }
 
-    // 타이머 설정: 기본 delay(마이크로초), level이 올라갈수록 빨라짐
-    int base_delay_ms = 500; // 기본 500ms
-    unsigned long last_tick = 0;
+    // timing
+    int base_delay_ms = 500; // gravity base
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    last_tick = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+    unsigned long last_tick = ts.tv_sec*1000 + ts.tv_nsec/1000000;
 
     while (!game_over) {
-        // draw
         draw_all(&curPiece, &nextPiece);
 
-        // input 처리 (비차단)
         int k = read_key_nonblock();
         if (k != -1) {
-            if (k == 'a') {
+            if (k == 27) {
+                // likely an arrow sequence: ESC [ A/B/C/D
+                int a = read_key_nonblock();
+                int b = read_key_nonblock();
+                if (a == '[' && b != -1) {
+                    if (b == 'D') { // left arrow
+                        if (!collide_piece(curPiece.type, curPiece.rot, curPiece.x - 1, curPiece.y)) curPiece.x--;
+                    } else if (b == 'C') { // right arrow
+                        if (!collide_piece(curPiece.type, curPiece.rot, curPiece.x + 1, curPiece.y)) curPiece.x++;
+                    } else if (b == 'B') { // down arrow (soft drop)
+                        if (!collide_piece(curPiece.type, curPiece.rot, curPiece.x, curPiece.y + 1)) {
+                            curPiece.y++;
+                            score += 1; // small soft-drop reward
+                        }
+                    } else if (b == 'A') { // up arrow -> rotate (support, but primary rotate is 's')
+                        int nr = (curPiece.rot + 1) % 4;
+                        try_rotate_with_kick(&curPiece, nr);
+                    }
+                }
+            } else if (k == 'a') {
                 if (!collide_piece(curPiece.type, curPiece.rot, curPiece.x - 1, curPiece.y)) curPiece.x--;
             } else if (k == 'd') {
                 if (!collide_piece(curPiece.type, curPiece.rot, curPiece.x + 1, curPiece.y)) curPiece.x++;
-            } else if (k == 's') {
-                if (!collide_piece(curPiece.type, curPiece.rot, curPiece.x, curPiece.y + 1)) curPiece.y++;
-            } else if (k == 'w') {
+            } else if (k == 's') { // rotate (user requested s)
                 int nr = (curPiece.rot + 1) % 4;
-                if (!collide_piece(curPiece.type, nr, curPiece.x, curPiece.y)) curPiece.rot = nr;
-                else {
-                    // simple wall-kick attempt: try shift left/right
-                    if (!collide_piece(curPiece.type, nr, curPiece.x - 1, curPiece.y)) { curPiece.x--; curPiece.rot = nr; }
-                    else if (!collide_piece(curPiece.type, nr, curPiece.x + 1, curPiece.y)) { curPiece.x++; curPiece.rot = nr; }
-                }
-            } else if (k == ' ') {
+                try_rotate_with_kick(&curPiece, nr);
+            } else if (k == ' ') { // hard drop
                 hard_drop(&curPiece);
-                // spawn
+                // spawn next
                 curPiece = nextPiece;
                 nextPiece = make_random_piece();
                 if (collide_piece(curPiece.type, curPiece.rot, curPiece.x, curPiece.y)) game_over = 1;
             } else if (k == 'p') {
                 paused = !paused;
                 if (paused) {
-                    gotoxy(1, HEIGHT/2);
-                    printf("==== PAUSED: Press 'p' to resume ====\n");
+                    gotoxy1();
+                    printf("\n\n==== PAUSED: press 'p' to resume ====\n");
+                    fflush(stdout);
                 } else {
-                    // redraw immediately
                     cls();
                 }
             } else if (k == 'q') {
@@ -368,39 +396,35 @@ int main() {
             }
         }
 
-        // tick: gravity
+        // gravity tick
         clock_gettime(CLOCK_MONOTONIC, &ts);
-        unsigned long now_ms = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+        unsigned long now_ms = ts.tv_sec*1000 + ts.tv_nsec/1000000;
         unsigned long delay_ms = base_delay_ms;
-        // speed up by level (simple): each level reduces delay
         if (level > 1) {
-            delay_ms = base_delay_ms * (100 - (level-1)*7) / 100; // decrease 7% per level approx
+            delay_ms = base_delay_ms * (100 - (level-1)*7) / 100;
             if (delay_ms < 50) delay_ms = 50;
         }
 
-        if (!paused && now_ms - last_tick >= delay_ms) {
+        if (!paused && (now_ms - last_tick >= delay_ms)) {
             last_tick = now_ms;
-            // try move down
             if (!collide_piece(curPiece.type, curPiece.rot, curPiece.x, curPiece.y + 1)) {
                 curPiece.y++;
             } else {
                 // lock piece
                 merge_piece(&curPiece);
                 clear_lines_and_score();
-                // spawn next
+                // spawn
                 curPiece = nextPiece;
                 nextPiece = make_random_piece();
-                if (collide_piece(curPiece.type, curPiece.rot, curPiece.x, curPiece.y)) {
-                    game_over = 1;
-                }
+                if (collide_piece(curPiece.type, curPiece.rot, curPiece.x, curPiece.y)) game_over = 1;
             }
         }
 
-        // 소소한 대기 (너무 높은 CPU 사용을 막기 위해)
-        usleep(8000); // 8ms
+        // tiny sleep to avoid 100% CPU
+        usleep(8000);
     }
 
-    // 종료 루틴
+    // final cleanup and stats
     cls();
     restore_terminal();
     printf("===== GAME OVER =====\n");
