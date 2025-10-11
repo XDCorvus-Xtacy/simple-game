@@ -94,7 +94,7 @@ int evaluate(char board[SIZE][SIZE])
     return 0;
 }
 
-//minimax 함수 구현
+//minimax 함수
 int minimax(char board[SIZE][SIZE], int depth, int isMaximizing)
 {
     int score = evaluate(board);
