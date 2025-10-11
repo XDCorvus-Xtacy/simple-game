@@ -83,6 +83,72 @@ void computerMove(char board[SIZE][SIZE])
 
 }
 
+//점수 평가 함수
+int evaluate(char board[SIZE][SIZE])
+{
+    char winner = checkWin(board);
+
+    if (winner == 'O') return +10;
+    if (winner == 'X') return -10;
+    if (isFull(board)) return 0;
+    return 0;
+}
+
+//minimax 함수 구현
+int minimax(char board[SIZE][SIZE], int depth, int isMaximizing)
+{
+    int score = evaluate(board);
+
+    //점수 할당
+    if (score == 10) return score - depth;  //AI가 이김
+    if (score == -10) return score + depth; //플레이어가 이김
+    if (isFull(board)) return 0;            //무승부
+
+    //AI 차례 (isMaximizing == 1)
+    if (isMaximizing)
+    {
+        int best = -1000;
+
+        for (int i=0; i<SIZE; i++)
+        {
+            for (int j=0; j<SIZE; j++)
+            {
+                if (board[i][j] = ' ')
+                {
+                    board[i][j] = 'O';  //AI 수 두기
+                    int val = minimax(board, depth+1, 0);
+                    board[i][j] = ' '; //원상 복구
+
+                    if (val > best)
+                        best = val;
+                }
+            }
+        }
+        return best;
+    }
+    //플레이어 차례 (isMaximizing == 0)
+    else
+    {
+        int best = 1000
+        for (int i=0; i<SIZE; i++)
+        {
+            for (int j=0; j<SIZE; j++)
+            {
+                if (board[i][j] = ' ')
+                {
+                    board[i][j] = 'X';  //플레이어 수 두기
+                    int val = minimax(board, depth +1, 1);
+                    board[i][j] = ' ';  //원상 복구
+                    
+                    if (val < best)
+                        best = val;
+                }
+            }
+        }
+        return best;
+    }
+}
+
 // 메인 함수
 int main(void) {
     char board[SIZE][SIZE];
