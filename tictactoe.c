@@ -149,6 +149,18 @@ int minimax(char board[SIZE][SIZE], int depth, int isMaximizing)
     }
 }
 
+//최적의 수 찾기
+int findBestMove(char board[SIZE][SIZE])
+{
+    for (int i=0; i<SIZE; i++)
+    {
+        for (int j=0; j<SIZE; j++)
+        {
+            
+        }
+    }
+}
+
 // 메인 함수
 int main(void) {
     char board[SIZE][SIZE];
