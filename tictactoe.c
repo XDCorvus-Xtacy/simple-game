@@ -152,18 +152,26 @@ int minimax(char board[SIZE][SIZE], int depth, int isMaximizing)
 //최적의 수 찾기
 void findBestMove(char board[SIZE][SIZE])
 {
-    int minival = 0, best = -9999, row = 0, cal = 0;
+    int moveScore = 0, best = -9999, row = 0, cal = 0;
     for (int i=0; i<SIZE; i++)
     {
         for (int j=0; j<SIZE; j++)
         {
             if (board[i][j] == ' ')
             {
-                board[i][j] = 'O'   //임시로 컴퓨터 수 두기
-                minival = minimax(board, 0, 0)  //사람 차례 (isMaximizing == 0)
+                board[i][j] = 'O';   //임시로 컴퓨터 수 두기
+                moveScore = minimax(board, 0, 0);  //사람 차례 (isMaximizing == 0)
+                board[i][j] = ' ';
+
+                if (moveScore > best)
+                {
+                    best = moveScore;
+                    row = i, cal = j;
+                }
             }
         }
     }
+    board[row][cal] = 'O';
 }
 
 // 메인 함수
