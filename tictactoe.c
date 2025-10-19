@@ -98,10 +98,9 @@ int minimax(char board[SIZE][SIZE], int depth, int isMaximizing)
 {
     int score = evaluate(board, depth);
 
-    //점수 할당
-    if (score == 10) return score - depth;  //AI가 이김
-    if (score == -10) return score + depth; //플레이어가 이김
-    if (isFull(board)) return 0;            //무승부
+    //게임이 끝난 경우(승패 또는 무승부)
+    if (score != 0 || isFull(board))
+        return score;
 
     //AI 차례 (isMaximizing == 1)
     if (isMaximizing)
@@ -151,7 +150,7 @@ int minimax(char board[SIZE][SIZE], int depth, int isMaximizing)
 //최적의 수 찾기
 void findBestMove(char board[SIZE][SIZE])
 {
-    int moveScore = 0, best = -9999, row = 0, cal = 0;
+    int moveScore = 0, best = -1000, row = 0, cal = 0;
     for (int i=0; i<SIZE; i++)
     {
         for (int j=0; j<SIZE; j++)
