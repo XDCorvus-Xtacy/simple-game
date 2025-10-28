@@ -101,7 +101,7 @@ int evaluateHeuristic(char board[SIZE][SIZE], int depth) {
     return score;
 }
 
-/*
+
 // 📘 알파베타 가지치기 기반 minimax
 int minimaxAlphaBeta(char board[SIZE][SIZE], int depth, int isMaximizing, int alpha, int beta) {
     int score = evaluateHeuristic(board, depth);
@@ -142,72 +142,7 @@ int minimaxAlphaBeta(char board[SIZE][SIZE], int depth, int isMaximizing, int al
         return best;
     }
 }
-*/
 
-//시각화용 minimaxAlphaBeta
-int minimaxAlphaBeta(char board[SIZE][SIZE], int depth, int isMaximizing, int alpha, int beta) {
-    int score = evaluateHeuristic(board, depth);
-    char winner = checkWin(board);
-    if (winner == 'O' || winner == 'X' || isFull(board))
-        return score;
-
-    // 🌱 깊이에 따른 들여쓰기 (탐색 단계 시각화)
-    for (int i = 0; i < depth; i++) printf("    ");
-
-    printf("[Depth %d | α=%d, β=%d] → %s 턴\n",
-           depth, alpha, beta, isMaximizing ? "AI(O)" : "플레이어(X)");
-
-    if (isMaximizing) {
-        int best = -1000;
-        for (int i = 0; i < SIZE; i++) {
-            for (int j = 0; j < SIZE; j++) {
-                if (board[i][j] == ' ') {
-                    board[i][j] = 'O';
-                    int val = minimaxAlphaBeta(board, depth + 1, 0, alpha, beta);
-                    board[i][j] = ' ';
-                    if (val > best) best = val;
-                    if (best > alpha) alpha = best;
-
-                    for (int k = 0; k < depth; k++) printf("    ");
-                    printf("AI(O)이 (%d,%d)에 둠 → val=%d, α=%d, β=%d\n",
-                           i + 1, j + 1, val, alpha, beta);
-
-                    if (beta <= alpha) {
-                        for (int k = 0; k < depth; k++) printf("    ");
-                        printf("✂️ 가지치기 발생! (β <= α)\n");
-                        return best;
-                    }
-                }
-            }
-        }
-        return best;
-    } 
-    else {
-        int best = 1000;
-        for (int i = 0; i < SIZE; i++) {
-            for (int j = 0; j < SIZE; j++) {
-                if (board[i][j] == ' ') {
-                    board[i][j] = 'X';
-                    int val = minimaxAlphaBeta(board, depth + 1, 1, alpha, beta);
-                    board[i][j] = ' ';
-                    if (val < best) best = val;
-                    if (best < beta) beta = best;
-
-                    for (int k = 0; k < depth; k++) printf("    ");
-                    printf("플레이어(X)가 (%d,%d)에 둠 → val=%d, α=%d, β=%d\n",
-                           i + 1, j + 1, val, alpha, beta);
-
-                    if (beta <= alpha) {
-                        for (int k = 0; k < depth; k++) printf("    ");
-                        printf("✂️ 가지치기 발생! (β <= α)\n");
-                        return best;
-                    }
-                }
-            }
-        }
-        return best;
-    }
-}
 
 // 📘 최적의 수 찾기
 void findBestMove(char board[SIZE][SIZE]) {
