@@ -2,7 +2,7 @@
 
 
 //보드 출력 함수
-void printBoard(char board[SIZE][SIZE], int SIZE)
+void printBoard(int SIZE, char board[SIZE][SIZE])
 {
     printf("\n");
     printf("   ");  // 왼쪽 여백
@@ -35,10 +35,10 @@ void printBoard(char board[SIZE][SIZE], int SIZE)
 }
 
 //승패 및 무승부 확인 함수
-int checkWin(char board[SIZE][SIZE], int x, int y);
+int checkWin(int SIZE, char board[SIZE][SIZE], int x, int y);
 
 //수 두기 함수
-int placeStone(char board[SIZE][SIZE], int x, int y, char current);
+int placeStone(int SIZE, char board[SIZE][SIZE], int x, int y, char current);
 
 //플레이어 턴 전환 함수
 char switchPlayer(char current);
@@ -63,7 +63,7 @@ int main(void)
         for (int j=0; j<SIZE; j++)
             board[i][j] = ' ';
 
-    printBoard(board, SIZE);
+    printBoard(SIZE, board);
 
     return 0;
 }
